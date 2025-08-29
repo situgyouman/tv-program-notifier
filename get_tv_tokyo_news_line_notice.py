@@ -135,7 +135,7 @@ if __name__ == "__main__":
         "モーサテ": get_nms_highlights,
         "カンブリア宮殿": get_cambria_info,
         "ガイアの夜明け": get_gaia_info,
-        "知られずるガリバー": get_gulliver_info,
+        "知られざるガリバー": get_gulliver_info,
         "ブレイクスルー": get_breakthrough_info,
     }
     
@@ -149,3 +149,4 @@ if __name__ == "__main__":
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
     
     print(f"{len(user_id_list)} 人にメッセージが送信されました。")
+
