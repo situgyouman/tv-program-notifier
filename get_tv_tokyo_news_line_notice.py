@@ -143,10 +143,11 @@ if __name__ == "__main__":
     for name, func in programs.items():
         info = func()
         # 出力形式を調整（区切り線の文字数を変更）
-        final_message += f"\n\n" + "="*15 + f"\n## {name} ##\n\n{info}"
+        final_message += f"\n\n" + "="*7 + f"\n# {name} #\n\n{info}"
 
     # 一斉送信用の関数を呼び出す
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
     
     print(f"{len(user_id_list)} 人にメッセージが送信されました。")
+
 
