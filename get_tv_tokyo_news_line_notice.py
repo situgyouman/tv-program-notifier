@@ -19,7 +19,7 @@ def send_line_multicast(message, channel_access_token, user_id_list):
     }
     requests.post(line_api_url, headers=headers, data=json.dumps(payload))
 
-# --- 各番組の情報を取得する関数 (URL追加などの修正版) ---
+# --- 各番組の情報を取得する関数 ---
 
 def get_wbs_highlights():
     url = "https://www.tv-tokyo.co.jp/wbs/"
@@ -35,7 +35,6 @@ def get_wbs_highlights():
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        # 取得した情報とURLを結合して返す
         return f"--- {title} ---\n{date}\n{text}\n\n{url}"
     except Exception as e:
         return f"WBSの処理中にエラーが発生: {e}\n\n{url}"
@@ -109,14 +108,46 @@ def get_gulliver_info():
     except Exception as e:
         return f"ガリバーの処理中にエラーが発生: {e}\n\n{url}"
 
-# --- 「ブレイクスルー」用の新しい関数 ---
+# --- 「ブレイクスルー」の関数をウェブサイトから取得するように変更 ---
 def get_breakthrough_info():
     """
-    「ブレイクスルー」用の固定メッセージを返す関数
+    「ブレイクスルー」公式サイトから次回の放送情報を取得する関数
     """
     url = "https://www.tv-tokyo.co.jp/breakthrough/"
-    message = "(土) 10時30分～　※予告が取れないのでリンクのみ"
-    return f"{message}\n{url}"
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        response.encoding = response.apparent_encoding
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # 全体を囲むセクションを特定
+        detail_section = soup.find("div", class_="tbcms_program-detail")
+        if not detail_section:
+            return f"ブレイクスルー: 次回予告セクションが見つかりませんでした。\n\n{url}"
+
+        # 日時を取得
+        date_tag = detail_section.find("b", class_="js-program-episode-schedule")
+        date = date_tag.get_text(strip=True) if date_tag else "日時不明"
+
+        # 「番組概要」という見出しを探し、その次にある説明文を取得
+        summary_heading = detail_section.find("h3", string="番組概要")
+        summary = ""
+        if summary_heading:
+            summary_div = summary_heading.find_next_sibling("div", class_="tbcms_program-detail__inner")
+            if summary_div and summary_div.find("p"):
+                summary = summary_div.find("p").get_text(strip=True)
+        
+        # もし番組概要が取得できなかった場合、別の場所の説明文を取得する
+        if not summary:
+            comment_div = detail_section.find("div", class_="js-program-episode-comment")
+            if comment_div:
+                summary = comment_div.get_text(strip=True)
+            else:
+                summary = "番組概要が見つかりませんでした。"
+
+        return f"{date}\n{summary}\n\n{url}"
+    except Exception as e:
+        return f"ブレイクスルーの処理中にエラーが発生: {e}\n\n{url}"
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
@@ -129,7 +160,6 @@ if __name__ == "__main__":
 
     user_id_list = user_ids_string.split(',')
     
-    # 実行する番組のリスト（ブレイクスルーを追加）
     programs = {
         "WBS": get_wbs_highlights,
         "モーサテ": get_nms_highlights,
@@ -142,12 +172,8 @@ if __name__ == "__main__":
     final_message = "今日のテレビ番組情報です！"
     for name, func in programs.items():
         info = func()
-        # 出力形式を調整（区切り線の文字数を変更）
         final_message += f"\n\n" + "="*7 + f"\n# {name} #\n\n{info}"
 
-    # 一斉送信用の関数を呼び出す
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
     
     print(f"{len(user_id_list)} 人にメッセージが送信されました。")
-
-
