@@ -2,32 +2,64 @@ import requests
 import json
 import os
 from bs4 import BeautifulSoup
+import time
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 
-# --- 通知を送る関数 (一斉送信対応) ---
+# --- お客様がご用意された通知関数 ---
 def send_line_multicast(message, channel_access_token, user_id_list):
     """
     LINE Messaging APIを使って複数人にプッシュメッセージを送信する関数
     """
+    if not channel_access_token or not user_id_list:
+        print("エラー: LINEトークンまたはユーザーIDが設定されていません。")
+        return
+
     line_api_url = 'https://api.line.me/v2/bot/message/multicast'
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {channel_access_token}'
     }
+    # LINEに送信できる最大文字数（5000文字）を考慮
+    if len(message) > 5000:
+        message = message[:4990] + "... (文字数超過)"
+
     payload = {
         'to': user_id_list,
         'messages': [{'type': 'text', 'text': message}]
     }
-    requests.post(line_api_url, headers=headers, data=json.dumps(payload))
+    
+    try:
+        response = requests.post(line_api_url, headers=headers, data=json.dumps(payload))
+        response.raise_for_status()
+        print("LINE通知を送信しました。")
+    except requests.exceptions.RequestException as e:
+        print(f"LINE通知の送信に失敗しました: {e}")
 
-# --- 各番組の情報を取得する関数 ---
 
-def get_wbs_highlights():
+# --- WebDriverをセットアップする関数 ---
+def setup_driver():
+    """WebDriverを【自動管理】で初期化して返す"""
+    options = webdriver.ChromeOptions()
+    # GitHub Actionsなどのサーバー環境で動作させるための必須オプション
+    options.add_argument('--headless')
+    options.add_argument('--no-sandbox')
+    options.add_argument('--disable-dev-shm-usage')
+    
+    # この一行でSeleniumManagerがWebDriverを自動管理します
+    driver = webdriver.Chrome(options=options)
+    return driver
+
+# --- 各番組の情報を取得する関数 (全てSeleniumを使用) ---
+
+def get_wbs_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/wbs/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         highlights_section = soup.find("div", class_="lay-left")
         if not highlights_section: return "WBS: 「番組の見どころ」セクションが見つかりませんでした。"
         header = highlights_section.find("h2", class_="hdg")
@@ -39,13 +71,12 @@ def get_wbs_highlights():
     except Exception as e:
         return f"WBSの処理中にエラーが発生: {e}\n\n{url}"
 
-def get_nms_highlights():
+def get_nms_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/nms/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         highlights_section = soup.find("div", class_="lay-left")
         if not highlights_section: return "モーサテ: 「番組の見どころ」セクションが見つかりませんでした。"
         header = highlights_section.find("h2", class_="hdg")
@@ -57,13 +88,12 @@ def get_nms_highlights():
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n\n{url}"
 
-def get_cambria_info():
+def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "hdg-l1-01-wrap")))
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         section = soup.find("div", class_="hdg-l1-01-wrap")
         if not section: return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。"
         date = section.find("p", class_="date").get_text(strip=True)
@@ -73,13 +103,12 @@ def get_cambria_info():
     except Exception as e:
         return f"カンブリア宮殿の処理中にエラーが発生: {e}\n\n{url}"
 
-def get_gaia_info():
+def get_gaia_info(driver):
     url = "https://www.tv-tokyo.co.jp/gaia/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lyt-hdg-next-inner")))
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         section = soup.find("div", class_="lyt-hdg-next-inner")
         if not section: return "ガイアの夜明け: 次回予告セクションが見つかりませんでした。"
         date = section.find("p", class_="text").get_text(strip=True)
@@ -88,13 +117,12 @@ def get_gaia_info():
     except Exception as e:
         return f"ガイアの夜明けの処理中にエラーが発生: {e}\n\n{url}"
 
-def get_gulliver_info():
+def get_gulliver_info(driver):
     url = "https://www.tv-tokyo.co.jp/gulliver/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "tbcms_official-contents__heading")))
+        soup = BeautifulSoup(driver.page_source, "html.parser")
         next_preview_heading = soup.find("h2", class_="tbcms_official-contents__heading", string="次回予告")
         if not next_preview_heading: return "ガリバー: 「次回予告」の見出しが見つかりませんでした。"
         content_block = next_preview_heading.find_parent("div", class_="tbcms_official-contents__block")
@@ -108,43 +136,19 @@ def get_gulliver_info():
     except Exception as e:
         return f"ガリバーの処理中にエラーが発生: {e}\n\n{url}"
 
-# --- 「ブレイクスルー」の関数をウェブサイトから取得するように変更 ---
-def get_breakthrough_info():
-    """
-    「ブレイクスルー」公式サイトから次回の放送情報を取得する関数
-    """
+def get_breakthrough_info(driver):
     url = "https://www.tv-tokyo.co.jp/breakthrough/"
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        response.encoding = response.apparent_encoding
-        soup = BeautifulSoup(response.text, "html.parser")
-
-        # 全体を囲むセクションを特定
-        detail_section = soup.find("div", class_="tbcms_program-detail")
-        if not detail_section:
-            return f"ブレイクスルー: 次回予告セクションが見つかりませんでした。\n\n{url}"
-
-        # 日時を取得
-        date_tag = detail_section.find("b", class_="js-program-episode-schedule")
-        date = date_tag.get_text(strip=True) if date_tag else "日時不明"
-
-        # 「番組概要」という見出しを探し、その次にある説明文を取得
-        summary_heading = detail_section.find("h3", string="番組概要")
-        summary = ""
-        if summary_heading:
-            summary_div = summary_heading.find_next_sibling("div", class_="tbcms_program-detail__inner")
-            if summary_div and summary_div.find("p"):
-                summary = summary_div.find("p").get_text(strip=True)
-        
-        # もし番組概要が取得できなかった場合、別の場所の説明文を取得する
-        if not summary:
-            comment_div = detail_section.find("div", class_="js-program-episode-comment")
-            if comment_div:
-                summary = comment_div.get_text(strip=True)
-            else:
-                summary = "番組概要が見つかりませんでした。"
-
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
+        time.sleep(1) 
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        date_tag = soup.find("b", class_="js-program-episode-schedule")
+        date = date_tag.get_text(strip=True) if date_tag and date_tag.get_text(strip=True) else "日時不明"
+        summary_tag = soup.find("div", class_="js-program-episode-comment")
+        summary = summary_tag.get_text(strip=True) if summary_tag and summary_tag.get_text(strip=True) else "番組概要が見つかりませんでした。"
+        if date == "日時不明" or summary == "番組概要が見つかりませんでした。":
+             return f"ブレイクスルー: 次回予告の情報が見つかりませんでした。\n\n{url}"
         return f"{date}\n{summary}\n\n{url}"
     except Exception as e:
         return f"ブレイクスルーの処理中にエラーが発生: {e}\n\n{url}"
@@ -153,12 +157,10 @@ def get_breakthrough_info():
 if __name__ == "__main__":
     CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
     user_ids_string = os.environ.get('YOUR_USER_ID')
-
-    if not CHANNEL_ACCESS_TOKEN or not user_ids_string:
-        print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
-        exit()
-
-    user_id_list = user_ids_string.split(',')
+    user_id_list = user_ids_string.split(',') if user_ids_string else []
+    
+    print("WebDriverを初期化・自動管理しています...")
+    driver = setup_driver()
     
     programs = {
         "WBS": get_wbs_highlights,
@@ -169,11 +171,15 @@ if __name__ == "__main__":
         "ブレイクスルー": get_breakthrough_info,
     }
     
-    final_message = "今日のテレビ番組情報です！"
-    for name, func in programs.items():
-        info = func()
-        final_message += f"\n\n" + "="*7 + f"\n# {name} #\n\n{info}"
+    # 最終的なメッセージの先頭に改行を追加してLINEでの見栄えを調整
+    final_message = "\n今日のテレビ番組情報です！"
+    try:
+        for name, func in programs.items():
+            print(f"{name}の情報を取得中...")
+            info = func(driver)
+            final_message += f"\n\n" + "="*7 + f"\n# {name} #\n\n{info}"
+    finally:
+        driver.quit()
+        print("全ての情報取得が完了しました。")
 
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
-    
-    print(f"{len(user_id_list)} 人にメッセージが送信されました。")
