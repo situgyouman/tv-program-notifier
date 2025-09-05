@@ -1,36 +1,29 @@
-import requests
-import json
-import os
-from bs4 import BeautifulSoup
 import time
+from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+import json
+import os
+import requests
 
-# --- お客様がご用意された通知関数 ---
+# --- LINE通知関数 ---
 def send_line_multicast(message, channel_access_token, user_id_list):
-    """
-    LINE Messaging APIを使って複数人にプッシュメッセージを送信する関数
-    """
     if not channel_access_token or not user_id_list:
         print("エラー: LINEトークンまたはユーザーIDが設定されていません。")
         return
-
     line_api_url = 'https://api.line.me/v2/bot/message/multicast'
     headers = {
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {channel_access_token}'
     }
-    # LINEに送信できる最大文字数（5000文字）を考慮
     if len(message) > 5000:
         message = message[:4990] + "... (文字数超過)"
-
     payload = {
         'to': user_id_list,
         'messages': [{'type': 'text', 'text': message}]
     }
-    
     try:
         response = requests.post(line_api_url, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
@@ -38,21 +31,16 @@ def send_line_multicast(message, channel_access_token, user_id_list):
     except requests.exceptions.RequestException as e:
         print(f"LINE通知の送信に失敗しました: {e}")
 
-
-# --- WebDriverをセットアップする関数 ---
+# --- WebDriverセットアップ関数 ---
 def setup_driver():
-    """WebDriverを【自動管理】で初期化して返す"""
     options = webdriver.ChromeOptions()
-    # GitHub Actionsなどのサーバー環境で動作させるための必須オプション
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    
-    # この一行でSeleniumManagerがWebDriverを自動管理します
     driver = webdriver.Chrome(options=options)
     return driver
 
-# --- 各番組の情報を取得する関数 (全てSeleniumを使用) ---
+# --- 各番組情報取得関数 ---
 
 def get_wbs_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/wbs/"
@@ -67,9 +55,9 @@ def get_wbs_highlights(driver):
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        return f"--- {title} ---\n{date}\n{text}\n\n{url}"
+        return f"--- {title} ---\n{date}\n{text}\n{url}"
     except Exception as e:
-        return f"WBSの処理中にエラーが発生: {e}\n\n{url}"
+        return f"WBSの処理中にエラーが発生: {e}\n{url}"
 
 def get_nms_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/nms/"
@@ -84,10 +72,11 @@ def get_nms_highlights(driver):
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        return f"--- {title} ---\n{date}\n{text}\n\n{url}"
+        return f"--- {title} ---\n{date}\n{text}\n{url}"
     except Exception as e:
-        return f"モーサテの処理中にエラーが発生: {e}\n\n{url}"
+        return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
+# ★★★ ここを修正しました ★★★
 def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
     try:
@@ -96,12 +85,32 @@ def get_cambria_info(driver):
         soup = BeautifulSoup(driver.page_source, "html.parser")
         section = soup.find("div", class_="hdg-l1-01-wrap")
         if not section: return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。"
+        
+        # 基本情報を取得
         date = section.find("p", class_="date").get_text(strip=True)
         title_tag = section.find("h3", class_="title")
         title = title_tag.get_text(separator="\n", strip=True) if title_tag else "タイトル不明"
-        return f"次回のカンブリア宮殿は {date}\n{title}\n\n{url}"
+
+        # ゲスト情報を取得
+        guest_info = ""
+        guest_li = section.find("li") # ゲスト情報は最初のliタグにあると仮定
+        if guest_li:
+            company_span = guest_li.find("span", class_="company")
+            name_span = guest_li.find("span", class_="name")
+            if company_span and name_span:
+                company = company_span.get_text(strip=True)
+                name = name_span.get_text(strip=True)
+                guest_info = f"{company}　　{name}"
+
+        # 情報を結合して返す
+        result = f"次回のカンブリア宮殿は {date}\n{title}"
+        if guest_info:
+            result += f"\n{guest_info}"
+        result += f"\n{url}"
+        
+        return result
     except Exception as e:
-        return f"カンブリア宮殿の処理中にエラーが発生: {e}\n\n{url}"
+        return f"カンブリア宮殿の処理中にエラーが発生: {e}\n{url}"
 
 def get_gaia_info(driver):
     url = "https://www.tv-tokyo.co.jp/gaia/"
@@ -113,9 +122,9 @@ def get_gaia_info(driver):
         if not section: return "ガイアの夜明け: 次回予告セクションが見つかりませんでした。"
         date = section.find("p", class_="text").get_text(strip=True)
         title = section.find("h3", class_="title").get_text(strip=True)
-        return f"{date}\n{title}\n\n{url}"
+        return f"{date}\n{title}\n{url}"
     except Exception as e:
-        return f"ガイアの夜明けの処理中にエラーが発生: {e}\n\n{url}"
+        return f"ガイアの夜明けの処理中にエラーが発生: {e}\n{url}"
 
 def get_gulliver_info(driver):
     url = "https://www.tv-tokyo.co.jp/gulliver/"
@@ -132,9 +141,9 @@ def get_gulliver_info(driver):
         if len(valid_paragraphs) < 2: return "ガリバー: 放送日や詳細情報が見つかりませんでした。"
         date_line = valid_paragraphs[0].get_text(strip=True)
         description = valid_paragraphs[1].get_text(strip=True)
-        return f"{date_line}\n{description}\n\n{url}"
+        return f"{date_line}\n{description}\n{url}"
     except Exception as e:
-        return f"ガリバーの処理中にエラーが発生: {e}\n\n{url}"
+        return f"ガリバーの処理中にエラーが発生: {e}\n{url}"
 
 def get_breakthrough_info(driver):
     url = "https://www.tv-tokyo.co.jp/breakthrough/"
@@ -149,7 +158,7 @@ def get_breakthrough_info(driver):
         summary = summary_tag.get_text(strip=True) if summary_tag and summary_tag.get_text(strip=True) else "番組概要が見つかりませんでした。"
         if date == "日時不明" or summary == "番組概要が見つかりませんでした。":
              return f"ブレイクスルー: 次回予告の情報が見つかりませんでした。\n\n{url}"
-        return f"{date}\n{summary}\n\n{url}"
+        return f"{date}\n{summary}\n{url}"
     except Exception as e:
         return f"ブレイクスルーの処理中にエラーが発生: {e}\n\n{url}"
 
@@ -171,13 +180,12 @@ if __name__ == "__main__":
         "ブレイクスルー": get_breakthrough_info,
     }
     
-    # 最終的なメッセージの先頭に改行を追加してLINEでの見栄えを調整
-    final_message = "\n今日のテレビ番組情報です！"
+    final_message = "今日のテレビ番組情報です！"
     try:
         for name, func in programs.items():
             print(f"{name}の情報を取得中...")
             info = func(driver)
-            final_message += f"\n\n" + "="*7 + f"\n# {name} #\n\n{info}"
+            final_message += f"\n\n" + "="*7 + f"\n# {name} #\n{info}"
     finally:
         driver.quit()
         print("全ての情報取得が完了しました。")
