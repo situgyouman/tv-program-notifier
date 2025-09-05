@@ -27,7 +27,7 @@ def send_line_multicast(message, channel_access_token, user_id_list):
     try:
         response = requests.post(line_api_url, headers=headers, data=json.dumps(payload))
         response.raise_for_status()
-        print("LINE通知を送信しました。")
+        print(f"{len(user_id_list)} 人にメッセージが送信されました。")
     except requests.exceptions.RequestException as e:
         print(f"LINE通知の送信に失敗しました: {e}")
 
@@ -76,33 +76,32 @@ def get_nms_highlights(driver):
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
-# ★★★ ここを修正しました ★★★
 def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
     try:
         driver.get(url)
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "hdg-l1-01-wrap")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        section = soup.find("div", class_="hdg-l1-01-wrap")
-        if not section: return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。"
         
-        # 基本情報を取得
-        date = section.find("p", class_="date").get_text(strip=True)
-        title_tag = section.find("h3", class_="title")
+        info_section = soup.find("div", class_="hdg-l1-01-wrap")
+        if not info_section: 
+            return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。"
+        date = info_section.find("p", class_="date").get_text(strip=True)
+        title_tag = info_section.find("h3", class_="title")
         title = title_tag.get_text(separator="\n", strip=True) if title_tag else "タイトル不明"
-
-        # ゲスト情報を取得
+        
         guest_info = ""
-        guest_li = section.find("li") # ゲスト情報は最初のliタグにあると仮定
-        if guest_li:
-            company_span = guest_li.find("span", class_="company")
-            name_span = guest_li.find("span", class_="name")
-            if company_span and name_span:
-                company = company_span.get_text(strip=True)
-                name = name_span.get_text(strip=True)
-                guest_info = f"{company}　　{name}"
+        guest_section = soup.find("ul", class_="list-name")
+        if guest_section:
+            guest_li = guest_section.find("li")
+            if guest_li:
+                company_span = guest_li.find("span", class_="company")
+                name_span = guest_li.find("span", class_="name")
+                if company_span and name_span:
+                    company = company_span.get_text(strip=True)
+                    name = name_span.get_text(separator=" ", strip=True)
+                    guest_info = f"{company}　　{name}"
 
-        # 情報を結合して返す
         result = f"次回のカンブリア宮殿は {date}\n{title}"
         if guest_info:
             result += f"\n{guest_info}"
@@ -167,27 +166,31 @@ if __name__ == "__main__":
     CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
     user_ids_string = os.environ.get('YOUR_USER_ID')
     user_id_list = user_ids_string.split(',') if user_ids_string else []
-    
-    print("WebDriverを初期化・自動管理しています...")
-    driver = setup_driver()
-    
-    programs = {
-        "WBS": get_wbs_highlights,
-        "モーサテ": get_nms_highlights,
-        "カンブリア宮殿": get_cambria_info,
-        "ガイアの夜明け": get_gaia_info,
-        "知られざるガリバー": get_gulliver_info,
-        "ブレイクスルー": get_breakthrough_info,
-    }
-    
-    final_message = "今日のテレビ番組情報です！"
-    try:
-        for name, func in programs.items():
-            print(f"{name}の情報を取得中...")
-            info = func(driver)
-            final_message += f"\n\n" + "="*7 + f"\n# {name} #\n{info}"
-    finally:
-        driver.quit()
-        print("全ての情報取得が完了しました。")
 
-    send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
+    if not CHANNEL_ACCESS_TOKEN or not user_id_list:
+        print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
+        # GitHub Actionsで実行されることを想定し、エラーがあっても終了コード0で終わるようにexit()は使わない
+    else:
+        print("WebDriverを初期化・自動管理しています...")
+        driver = setup_driver()
+        
+        programs = {
+            "WBS": get_wbs_highlights,
+            "モーサテ": get_nms_highlights,
+            "カンブリア宮殿": get_cambria_info,
+            "ガイアの夜明け": get_gaia_info,
+            "知られざるガリバー": get_gulliver_info,
+            "ブレイクスルー": get_breakthrough_info,
+        }
+        
+        final_message = "今日のテレビ番組情報です！"
+        try:
+            for name, func in programs.items():
+                print(f"{name}の情報を取得中...")
+                info = func(driver)
+                final_message += f"\n\n" + "="*7 + f"\n# {name} #\n{info}"
+        finally:
+            driver.quit()
+            print("全ての情報取得が完了しました。")
+
+        send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
