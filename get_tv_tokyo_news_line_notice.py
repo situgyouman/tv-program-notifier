@@ -188,9 +188,10 @@ if __name__ == "__main__":
             for name, func in programs.items():
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
-                final_message += f"\n\n" + "="*7 + f"\n# {name} #\n{info}"
+                final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}"
         finally:
             driver.quit()
             print("全ての情報取得が完了しました。")
 
         send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
+
