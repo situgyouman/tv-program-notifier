@@ -76,6 +76,28 @@ def get_nms_highlights(driver):
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
+# ★★★ ここに追加しました ★★★
+def get_money_manabi_info(driver):
+    url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
+    try:
+        driver.get(url)
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
+        time.sleep(1)
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+        
+        date_tag = soup.find("b", class_="js-program-episode-schedule")
+        date = date_tag.get_text(strip=True) if date_tag and date_tag.get_text(strip=True) else "日時不明"
+        
+        summary_tag = soup.find("div", class_="js-program-episode-comment")
+        summary = summary_tag.get_text(strip=True) if summary_tag and summary_tag.get_text(strip=True) else "番組概要が見つかりませんでした。"
+        
+        if date == "日時不明" or summary == "番組概要が見つかりませんでした。":
+            return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
+            
+        return f"{date}\n{summary}\n{url}"
+    except Exception as e:
+        return f"マネーの学びの処理中にエラーが発生: {e}\n{url}"
+
 def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
     try:
@@ -169,14 +191,15 @@ if __name__ == "__main__":
 
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
-        # GitHub Actionsで実行されることを想定し、エラーがあっても終了コード0で終わるようにexit()は使わない
     else:
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
         
+        # ★★★ ここに番組を追加し、表示順を調整しました ★★★
         programs = {
             "WBS": get_wbs_highlights,
             "モーサテ": get_nms_highlights,
+            "マネーの学び": get_money_manabi_info,
             "カンブリア宮殿": get_cambria_info,
             "ガイアの夜明け": get_gaia_info,
             "知られざるガリバー": get_gulliver_info,
@@ -188,10 +211,9 @@ if __name__ == "__main__":
             for name, func in programs.items():
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
-                final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}"
+                final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}" # 「=」の数もご希望に合わせて調整可能です
         finally:
             driver.quit()
             print("全ての情報取得が完了しました。")
 
         send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
-
