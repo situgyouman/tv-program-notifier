@@ -51,11 +51,11 @@ def get_wbs_highlights(driver):
         highlights_section = soup.find("div", class_="lay-left")
         if not highlights_section: return "WBS: 「番組の見どころ」セクションが見つかりませんでした。"
         header = highlights_section.find("h2", class_="hdg")
-        title = header.find("span", class_="title").get_text(strip=True) if header else "見出し不明"
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        return f"--- {title} ---\n{date}\n{text}\n{url}"
+        # ★修正点: 「番組の見どころ」の行を削除
+        return f"{date}\n{text}\n{url}"
     except Exception as e:
         return f"WBSの処理中にエラーが発生: {e}\n{url}"
 
@@ -68,15 +68,14 @@ def get_nms_highlights(driver):
         highlights_section = soup.find("div", class_="lay-left")
         if not highlights_section: return "モーサテ: 「番組の見どころ」セクションが見つかりませんでした。"
         header = highlights_section.find("h2", class_="hdg")
-        title = header.find("span", class_="title").get_text(strip=True) if header else "見出し不明"
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        return f"--- {title} ---\n{date}\n{text}\n{url}"
+        # ★修正点: 「番組の見どころ」の行を削除
+        return f"{date}\n{text}\n{url}"
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
-# ★★★ ここに追加しました ★★★
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
     try:
@@ -195,7 +194,6 @@ if __name__ == "__main__":
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
         
-        # ★★★ ここに番組を追加し、表示順を調整しました ★★★
         programs = {
             "WBS": get_wbs_highlights,
             "モーサテ": get_nms_highlights,
@@ -211,7 +209,7 @@ if __name__ == "__main__":
             for name, func in programs.items():
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
-                final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}" # 「=」の数もご希望に合わせて調整可能です
+                final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}"
         finally:
             driver.quit()
             print("全ての情報取得が完了しました。")
