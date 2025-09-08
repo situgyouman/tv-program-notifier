@@ -4,6 +4,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException
 import json
 import os
 import requests
@@ -54,7 +55,6 @@ def get_wbs_highlights(driver):
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        # ★修正点: 「番組の見どころ」の行を削除
         return f"{date}\n{text}\n{url}"
     except Exception as e:
         return f"WBSの処理中にエラーが発生: {e}\n{url}"
@@ -71,29 +71,36 @@ def get_nms_highlights(driver):
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
-        # ★修正点: 「番組の見どころ」の行を削除
         return f"{date}\n{text}\n{url}"
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
+# ★★★ ここを修正しました ★★★
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
     try:
         driver.get(url)
-        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
-        time.sleep(1)
+        # 次回予告のセクション全体が表示されるまで待つように変更
+        WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode"))
+        )
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
         date_tag = soup.find("b", class_="js-program-episode-schedule")
-        date = date_tag.get_text(strip=True) if date_tag and date_tag.get_text(strip=True) else "日時不明"
-        
         summary_tag = soup.find("div", class_="js-program-episode-comment")
-        summary = summary_tag.get_text(strip=True) if summary_tag and summary_tag.get_text(strip=True) else "番組概要が見つかりませんでした。"
-        
-        if date == "日時不明" or summary == "番組概要が見つかりませんでした。":
+
+        # タグが存在し、かつ、中身が空でないことを確認
+        if date_tag and date_tag.get_text(strip=True) and summary_tag and summary_tag.get_text(strip=True):
+            date = date_tag.get_text(strip=True)
+            summary = summary_tag.get_text(strip=True)
+            return f"{date}\n{summary}\n{url}"
+        else:
+            # タグが見つからない、または中身が空の場合
             return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
-            
-        return f"{date}\n{summary}\n{url}"
+
+    except TimeoutException:
+        # 指定した要素が時間内に見つからなかった場合（次回予告がない場合など）
+        return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
     except Exception as e:
         return f"マネーの学びの処理中にエラーが発生: {e}\n{url}"
 
