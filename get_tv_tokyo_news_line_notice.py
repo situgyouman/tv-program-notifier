@@ -78,31 +78,38 @@ def get_nms_highlights(driver):
 # ★★★ ここを修正しました ★★★
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
-    try:
-        driver.get(url)
-        # 次回予告のセクション全体が表示されるまで待つように変更
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode"))
-        )
-        soup = BeautifulSoup(driver.page_source, "html.parser")
-        
-        date_tag = soup.find("b", class_="js-program-episode-schedule")
-        summary_tag = soup.find("div", class_="js-program-episode-comment")
+    # 接続エラーに備え、最大3回まで再試行
+    for i in range(3):
+        try:
+            driver.get(url)
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode"))
+            )
+            soup = BeautifulSoup(driver.page_source, "html.parser")
+            
+            date_tag = soup.find("b", class_="js-program-episode-schedule")
+            summary_tag = soup.find("div", class_="js-program-episode-comment")
 
-        # タグが存在し、かつ、中身が空でないことを確認
-        if date_tag and date_tag.get_text(strip=True) and summary_tag and summary_tag.get_text(strip=True):
-            date = date_tag.get_text(strip=True)
-            summary = summary_tag.get_text(strip=True)
-            return f"{date}\n{summary}\n{url}"
-        else:
-            # タグが見つからない、または中身が空の場合
+            if date_tag and date_tag.get_text(strip=True) and summary_tag and summary_tag.get_text(strip=True):
+                date = date_tag.get_text(strip=True)
+                summary = summary_tag.get_text(strip=True)
+                return f"{date}\n{summary}\n{url}"
+            else:
+                return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
+
+        except TimeoutException:
+            # タイムアウトの場合は情報がない可能性が高いので再試行しない
             return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
+        except Exception as e:
+            # その他のエラー（接続エラーなど）の場合
+            print(f"マネーの学び: 試行 {i+1} 回目でエラーが発生: {e}")
+            if i < 2:  # 最後の試行でなければ少し待つ
+                time.sleep(3)
+            else: # 3回試行してもダメだった場合
+                return f"マネーの学びの処理中にエラーが解決しませんでした: {e}\n{url}"
+    
+    return f"マネーの学び: 複数回試行しましたが情報を取得できませんでした。\n{url}"
 
-    except TimeoutException:
-        # 指定した要素が時間内に見つからなかった場合（次回予告がない場合など）
-        return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
-    except Exception as e:
-        return f"マネーの学びの処理中にエラーが発生: {e}\n{url}"
 
 def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
@@ -187,7 +194,7 @@ def get_breakthrough_info(driver):
              return f"ブレイクスルー: 次回予告の情報が見つかりませんでした。\n\n{url}"
         return f"{date}\n{summary}\n{url}"
     except Exception as e:
-        return f"ブレイクスルーの処理中にエラーが発生: {e}\n\n{url}"
+        return f"ブレイクスルーの処理中にエラーが発生: {e}\n{url}"
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
