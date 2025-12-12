@@ -105,17 +105,15 @@ def get_money_manabi_info(driver):
     
     return f"マネーの学び: 複数回試行しましたが情報を取得できませんでした。\n{url}"
 
-# ★★★ NIKKEI NEWS NEXT の取得関数（強力版） ★★★
+# ★★★ NIKKEI NEWS NEXT の取得関数（修正版：番組概要を特定して取得） ★★★
 def get_nikkei_next_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/nikkeinext/"
     try:
         driver.get(url)
-        # 詳細エリア全体が表示されるのを待つ
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode")))
         time.sleep(1) 
         soup = BeautifulSoup(driver.page_source, "html.parser")
 
-        # 記事全体のブロックを取得（ここから探すことで範囲を限定）
         main_block = soup.find("div", class_="js-program-episode")
         if not main_block:
              return f"NIKKEI NEWS NEXT: 情報ブロックが見つかりませんでした。\n\n{url}"
@@ -128,25 +126,21 @@ def get_nikkei_next_info(driver):
         comment_tag = main_block.find("div", class_="js-program-episode-comment")
         summary = comment_tag.get_text(separator="\n", strip=True) if comment_tag else ""
 
-        # 3. 詳細本文の取得（より確実な方法）
-        # main_blockの中にある tbcms_program-detail__inner クラスを持つdivを全て調べる
+        # 3. 「番組概要」セクションの詳細本文の取得
         detail = ""
-        inner_divs = main_block.find_all("div", class_="tbcms_program-detail__inner")
+        # "番組概要"という文字を含むh3タグを探す
+        summary_heading = main_block.find("h3", string="番組概要")
         
-        for div in inner_divs:
-            # 要約エリア（js-program-episode-comment）は除外
-            if "js-program-episode-comment" in div.get("class", []):
-                continue
-            
-            # <p>タグがあるか確認
-            p_tag = div.find("p")
-            if p_tag:
-                text = p_tag.get_text(strip=True)
-                if text:
-                    detail = text
-                    break # 見つかったら終了
+        if summary_heading:
+            # その次にあるdivタグの中身を取得する
+            detail_div = summary_heading.find_next_sibling("div", class_="tbcms_program-detail__inner")
+            if detail_div:
+                p_tag = detail_div.find("p")
+                if p_tag:
+                    detail = p_tag.get_text(separator="\n", strip=True)
+                    # ご希望の形式に合わせて「番組概要」という見出しも本文の前に追加
+                    detail = "番組概要\n" + detail
 
-        # 情報結合
         content = []
         if summary: content.append(summary)
         if detail: content.append(detail)
@@ -246,12 +240,14 @@ def get_breakthrough_info(driver):
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
+    # 環境変数の取得
     CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
     user_ids_string = os.environ.get('YOUR_USER_ID')
     user_id_list = user_ids_string.split(',') if user_ids_string else []
 
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
+        print("環境変数 CHANNEL_ACCESS_TOKEN と YOUR_USER_ID を設定してください。")
     else:
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
@@ -279,5 +275,5 @@ if __name__ == "__main__":
             driver.quit()
             print("全ての情報取得が完了しました。")
 
-        # print(final_message)
+        # print(final_message) 
         send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
