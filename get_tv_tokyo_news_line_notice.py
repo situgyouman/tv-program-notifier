@@ -114,7 +114,7 @@ def get_money_manabi_info(driver):
     
     return f"マネーの学び: 複数回試行しましたが情報を取得できませんでした。\n{url}"
 
-# ★★★ NIKKEI NEWS NEXT の情報を取得する関数（詳細本文も追加） ★★★
+# ★★★ NIKKEI NEWS NEXT の情報を取得する関数（修正版） ★★★
 def get_nikkei_next_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/nikkeinext/"
     try:
@@ -132,14 +132,18 @@ def get_nikkei_next_info(driver):
         comment_tag = soup.find("div", class_="js-program-episode-comment")
         summary = comment_tag.get_text(separator="\n", strip=True) if comment_tag else ""
 
-        # 3. 詳細本文の取得 (見出しの次のブロックの<p>タグを探す)
+        # 3. 詳細本文の取得 (見出し以降の兄弟要素から<p>タグを含むブロックを探す) ★ここを修正★
         detail = ""
         if comment_tag:
-            next_div = comment_tag.find_next_sibling("div", class_="tbcms_program-detail__inner")
-            if next_div:
-                p_tag = next_div.find("p")
+            # 以降のすべての兄弟要素を取得
+            siblings = comment_tag.find_next_siblings("div", class_="tbcms_program-detail__inner")
+            for sibling in siblings:
+                p_tag = sibling.find("p")
                 if p_tag:
-                    detail = p_tag.get_text(strip=True)
+                    # <p>タグが見つかったらそのテキストを取得してループを抜ける
+                    # separator="\n" を指定して<br>などを改行に変換
+                    detail = p_tag.get_text(separator="\n", strip=True)
+                    break
         
         # 情報が全くない場合の判定
         if date == "日時不明" and not summary and not detail:
@@ -251,9 +255,6 @@ if __name__ == "__main__":
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
         print("環境変数 CHANNEL_ACCESS_TOKEN と YOUR_USER_ID を設定してください。")
-        # テスト用にドライバだけ起動して終了（実際にはコメントアウトまたは削除しても良い）
-        # driver = setup_driver()
-        # driver.quit()
     else:
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
@@ -275,7 +276,7 @@ if __name__ == "__main__":
             for name, func in programs_to_fetch:
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
-                # ★★★ 区切り線を「=========」（9個）に変更 ★★★
+                # 区切り線（9個）
                 final_message += f"\n\n" + "="*9 + f"\n# {name} #\n{info}"
         except Exception as e:
             print(f"予期せぬエラーが発生しました: {e}")
@@ -283,5 +284,5 @@ if __name__ == "__main__":
             driver.quit()
             print("全ての情報取得が完了しました。")
 
-        # print(final_message) # デバッグ用に出力確認したい場合はコメントを外す
+        # print(final_message) # デバッグ用
         send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
