@@ -38,6 +38,8 @@ def setup_driver():
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
+    # ログ出力を抑制
+    options.add_argument('--log-level=3')
     driver = webdriver.Chrome(options=options)
     return driver
 
@@ -50,7 +52,7 @@ def get_wbs_highlights(driver):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         highlights_section = soup.find("div", class_="lay-left")
-        if not highlights_section: return "WBS: 「番組の見どころ」セクションが見つかりませんでした。"
+        if not highlights_section: return "WBS: 「番組の見どころ」セクションが見つかりませんでした。\n{url}"
         header = highlights_section.find("h2", class_="hdg")
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
@@ -66,7 +68,7 @@ def get_nms_highlights(driver):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         highlights_section = soup.find("div", class_="lay-left")
-        if not highlights_section: return "モーサテ: 「番組の見どころ」セクションが見つかりませんでした。"
+        if not highlights_section: return "モーサテ: 「番組の見どころ」セクションが見つかりませんでした。\n{url}"
         header = highlights_section.find("h2", class_="hdg")
         date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
         text_area = highlights_section.find("div", class_="text-area")
@@ -75,7 +77,6 @@ def get_nms_highlights(driver):
     except Exception as e:
         return f"モーサテの処理中にエラーが発生: {e}\n{url}"
 
-# ★★★ ここを修正しました ★★★
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
     # 接続エラーに備え、最大3回まで再試行
@@ -86,7 +87,7 @@ def get_money_manabi_info(driver):
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode"))
             )
             soup = BeautifulSoup(driver.page_source, "html.parser")
-            
+             
             date_tag = soup.find("b", class_="js-program-episode-schedule")
             summary_tag = soup.find("div", class_="js-program-episode-comment")
 
@@ -107,8 +108,47 @@ def get_money_manabi_info(driver):
                 time.sleep(3)
             else: # 3回試行してもダメだった場合
                 return f"マネーの学びの処理中にエラーが解決しませんでした: {e}\n{url}"
-    
+     
     return f"マネーの学び: 複数回試行しましたが情報を取得できませんでした。\n{url}"
+
+# ★★★ 追加した関数: NIKKEI NEWS NEXT の情報を取得 ★★★
+def get_nikkei_next_info(driver):
+    url = "https://www.bs-tvtokyo.co.jp/nikkeinext/"
+    try:
+        driver.get(url)
+        # 日付要素が表示されるまで待機
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
+        time.sleep(1) # 念のため少し待機
+        soup = BeautifulSoup(driver.page_source, "html.parser")
+
+        # 1. 日時の取得
+        date_tag = soup.find("b", class_="js-program-episode-schedule")
+        date = date_tag.get_text(strip=True) if date_tag else "日時不明"
+        
+        # 2. 見出し（概要）の取得 (<br>タグを改行に変換)
+        comment_tag = soup.find("div", class_="js-program-episode-comment")
+        summary = comment_tag.get_text(separator="\n", strip=True) if comment_tag else ""
+
+        # 3. 詳細本文の取得 (見出しの次のブロックを探す)
+        detail = ""
+        if comment_tag:
+            next_div = comment_tag.find_next_sibling("div", class_="tbcms_program-detail__inner")
+            if next_div:
+                detail = next_div.get_text(separator="\n", strip=True)
+        
+        # 情報が全くない場合の判定
+        if date == "日時不明" and not summary and not detail:
+             return f"NIKKEI NEWS NEXT: 次回予告の情報が見つかりませんでした。\n\n{url}"
+
+        # 本文を結合
+        content = []
+        if summary: content.append(summary)
+        if detail: content.append(detail)
+        full_content = "\n".join(content)
+
+        return f"{date}\n{full_content}\n{url}"
+    except Exception as e:
+        return f"NIKKEI NEWS NEXTの処理中にエラーが発生: {e}\n{url}"
 
 
 def get_cambria_info(driver):
@@ -117,14 +157,14 @@ def get_cambria_info(driver):
         driver.get(url)
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "hdg-l1-01-wrap")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
-        
+         
         info_section = soup.find("div", class_="hdg-l1-01-wrap")
         if not info_section: 
-            return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。"
+            return "カンブリア宮殿: 次回予告セクションが見つかりませんでした。\n{url}"
         date = info_section.find("p", class_="date").get_text(strip=True)
         title_tag = info_section.find("h3", class_="title")
         title = title_tag.get_text(separator="\n", strip=True) if title_tag else "タイトル不明"
-        
+         
         guest_info = ""
         guest_section = soup.find("ul", class_="list-name")
         if guest_section:
@@ -141,7 +181,7 @@ def get_cambria_info(driver):
         if guest_info:
             result += f"\n{guest_info}"
         result += f"\n{url}"
-        
+         
         return result
     except Exception as e:
         return f"カンブリア宮殿の処理中にエラーが発生: {e}\n{url}"
@@ -153,7 +193,7 @@ def get_gaia_info(driver):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lyt-hdg-next-inner")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         section = soup.find("div", class_="lyt-hdg-next-inner")
-        if not section: return "ガイアの夜明け: 次回予告セクションが見つかりませんでした。"
+        if not section: return "ガイアの夜明け: 次回予告セクションが見つかりませんでした。\n{url}"
         date = section.find("p", class_="text").get_text(strip=True)
         title = section.find("h3", class_="title").get_text(strip=True)
         return f"{date}\n{title}\n{url}"
@@ -167,12 +207,12 @@ def get_gulliver_info(driver):
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "tbcms_official-contents__heading")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         next_preview_heading = soup.find("h2", class_="tbcms_official-contents__heading", string="次回予告")
-        if not next_preview_heading: return "ガリバー: 「次回予告」の見出しが見つかりませんでした。"
+        if not next_preview_heading: return "ガリバー: 「次回予告」の見出しが見つかりませんでした。\n{url}"
         content_block = next_preview_heading.find_parent("div", class_="tbcms_official-contents__block")
-        if not content_block: return "ガリバー: コンテンツブロックが見つかりませんでした。"
+        if not content_block: return "ガリバー: コンテンツブロックが見つかりませんでした。\n{url}"
         paragraphs = content_block.find_all("p")
         valid_paragraphs = [p for p in paragraphs if p.get_text(strip=True)]
-        if len(valid_paragraphs) < 2: return "ガリバー: 放送日や詳細情報が見つかりませんでした。"
+        if len(valid_paragraphs) < 2: return "ガリバー: 放送日や詳細情報が見つかりませんでした。\n{url}"
         date_line = valid_paragraphs[0].get_text(strip=True)
         description = valid_paragraphs[1].get_text(strip=True)
         return f"{date_line}\n{description}\n{url}"
@@ -198,18 +238,22 @@ def get_breakthrough_info(driver):
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
+    # 環境変数の取得（ご自身の環境に合わせて設定してください）
     CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
     user_ids_string = os.environ.get('YOUR_USER_ID')
     user_id_list = user_ids_string.split(',') if user_ids_string else []
 
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
+        print("環境変数 CHANNEL_ACCESS_TOKEN と YOUR_USER_ID を設定してください。")
     else:
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
-        
+         
+        # ★★★ ここに NIKKEI NEWS NEXT を追加しました ★★★
         programs = {
             "WBS": get_wbs_highlights,
+            "NIKKEI NEWS NEXT": get_nikkei_next_info, # 追加
             "モーサテ": get_nms_highlights,
             "マネーの学び": get_money_manabi_info,
             "カンブリア宮殿": get_cambria_info,
@@ -217,13 +261,16 @@ if __name__ == "__main__":
             "知られざるガリバー": get_gulliver_info,
             "ブレイクスルー": get_breakthrough_info,
         }
-        
+         
         final_message = "今日のテレビ番組情報です！"
         try:
             for name, func in programs.items():
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
+                # 区切り線を15個に変更
                 final_message += f"\n\n" + "="*15 + f"\n# {name} #\n{info}"
+        except Exception as e:
+            print(f"予期せぬエラーが発生しました: {e}")
         finally:
             driver.quit()
             print("全ての情報取得が完了しました。")
