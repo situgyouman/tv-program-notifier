@@ -19,7 +19,6 @@ def send_line_multicast(message, channel_access_token, user_id_list):
         'Content-Type': 'application/json',
         'Authorization': f'Bearer {channel_access_token}'
     }
-    # メッセージが長すぎる場合の対策（LINEの制限は通常5000文字）
     if len(message) > 5000:
         message = message[:4990] + "... (文字数超過)"
     payload = {
@@ -36,10 +35,9 @@ def send_line_multicast(message, channel_access_token, user_id_list):
 # --- WebDriverセットアップ関数 ---
 def setup_driver():
     options = webdriver.ChromeOptions()
-    options.add_argument('--headless')  # ヘッドレスモードで実行
+    options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
-    # ログ出力を抑制
     options.add_argument('--log-level=3')
     driver = webdriver.Chrome(options=options)
     return driver
@@ -50,7 +48,6 @@ def get_wbs_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/wbs/"
     try:
         driver.get(url)
-        # ページの主要部分が読み込まれるまで待機
         WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         highlights_section = soup.find("div", class_="lay-left")
@@ -81,11 +78,9 @@ def get_nms_highlights(driver):
 
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
-    # 接続エラーに備え、最大3回まで再試行
     for i in range(3):
         try:
             driver.get(url)
-            # 目的の要素が表示されるまで待機
             WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode"))
             )
@@ -102,58 +97,63 @@ def get_money_manabi_info(driver):
                 return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
 
         except TimeoutException:
-            # タイムアウトの場合は情報がない可能性が高いので再試行しない
             return f"マネーの学び: 次回予告の情報が見つかりませんでした。\n\n{url}"
         except Exception as e:
-            # その他のエラー（接続エラーなど）の場合
             print(f"マネーの学び: 試行 {i+1} 回目でエラーが発生: {e}")
-            if i < 2:  # 最後の試行でなければ少し待つ
-                time.sleep(3)
-            else: # 3回試行してもダメだった場合
-                return f"マネーの学びの処理中にエラーが解決しませんでした: {e}\n{url}"
+            if i < 2: time.sleep(3)
+            else: return f"マネーの学びの処理中にエラーが解決しませんでした: {e}\n{url}"
     
     return f"マネーの学び: 複数回試行しましたが情報を取得できませんでした。\n{url}"
 
-# ★★★ NIKKEI NEWS NEXT の情報を取得する関数（修正版） ★★★
+# ★★★ NIKKEI NEWS NEXT の取得関数（強力版） ★★★
 def get_nikkei_next_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/nikkeinext/"
     try:
         driver.get(url)
-        # 日付要素が表示されるまで待機
-        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
-        time.sleep(1) # 念のため少し待機
+        # 詳細エリア全体が表示されるのを待つ
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode")))
+        time.sleep(1) 
         soup = BeautifulSoup(driver.page_source, "html.parser")
 
+        # 記事全体のブロックを取得（ここから探すことで範囲を限定）
+        main_block = soup.find("div", class_="js-program-episode")
+        if not main_block:
+             return f"NIKKEI NEWS NEXT: 情報ブロックが見つかりませんでした。\n\n{url}"
+
         # 1. 日時の取得
-        date_tag = soup.find("b", class_="js-program-episode-schedule")
+        date_tag = main_block.find("b", class_="js-program-episode-schedule")
         date = date_tag.get_text(strip=True) if date_tag else "日時不明"
         
-        # 2. 見出し（概要）の取得 (<br>タグを改行に変換)
-        comment_tag = soup.find("div", class_="js-program-episode-comment")
+        # 2. 見出し（概要）の取得
+        comment_tag = main_block.find("div", class_="js-program-episode-comment")
         summary = comment_tag.get_text(separator="\n", strip=True) if comment_tag else ""
 
-        # 3. 詳細本文の取得 (見出し以降の兄弟要素から<p>タグを含むブロックを探す) ★ここを修正★
+        # 3. 詳細本文の取得（より確実な方法）
+        # main_blockの中にある tbcms_program-detail__inner クラスを持つdivを全て調べる
         detail = ""
-        if comment_tag:
-            # 以降のすべての兄弟要素を取得
-            siblings = comment_tag.find_next_siblings("div", class_="tbcms_program-detail__inner")
-            for sibling in siblings:
-                p_tag = sibling.find("p")
-                if p_tag:
-                    # <p>タグが見つかったらそのテキストを取得してループを抜ける
-                    # separator="\n" を指定して<br>などを改行に変換
-                    detail = p_tag.get_text(separator="\n", strip=True)
-                    break
+        inner_divs = main_block.find_all("div", class_="tbcms_program-detail__inner")
         
-        # 情報が全くない場合の判定
-        if date == "日時不明" and not summary and not detail:
-             return f"NIKKEI NEWS NEXT: 次回予告の情報が見つかりませんでした。\n\n{url}"
+        for div in inner_divs:
+            # 要約エリア（js-program-episode-comment）は除外
+            if "js-program-episode-comment" in div.get("class", []):
+                continue
+            
+            # <p>タグがあるか確認
+            p_tag = div.find("p")
+            if p_tag:
+                text = p_tag.get_text(strip=True)
+                if text:
+                    detail = text
+                    break # 見つかったら終了
 
-        # 本文を結合
+        # 情報結合
         content = []
         if summary: content.append(summary)
         if detail: content.append(detail)
         full_content = "\n".join(content)
+
+        if date == "日時不明" and not full_content:
+             return f"NIKKEI NEWS NEXT: 次回予告の情報が見つかりませんでした。\n\n{url}"
 
         return f"{date}\n{full_content}\n{url}"
     except Exception as e:
@@ -190,7 +190,6 @@ def get_cambria_info(driver):
         if guest_info:
             result += f"\n{guest_info}"
         result += f"\n{url}"
-        
         return result
     except Exception as e:
         return f"カンブリア宮殿の処理中にエラーが発生: {e}\n{url}"
@@ -247,19 +246,16 @@ def get_breakthrough_info(driver):
 
 # --- メインの実行部分 ---
 if __name__ == "__main__":
-    # 環境変数の取得
     CHANNEL_ACCESS_TOKEN = os.environ.get('CHANNEL_ACCESS_TOKEN')
     user_ids_string = os.environ.get('YOUR_USER_ID')
     user_id_list = user_ids_string.split(',') if user_ids_string else []
 
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("エラー: 必要な環境変数（アクセストークンまたはユーザーID）が設定されていません。")
-        print("環境変数 CHANNEL_ACCESS_TOKEN と YOUR_USER_ID を設定してください。")
     else:
         print("WebDriverを初期化・自動管理しています...")
         driver = setup_driver()
         
-        # 取得する番組のリスト（表示順）
         programs_to_fetch = [
             ("WBS", get_wbs_highlights),
             ("NIKKEI NEWS NEXT", get_nikkei_next_info),
@@ -276,7 +272,6 @@ if __name__ == "__main__":
             for name, func in programs_to_fetch:
                 print(f"{name}の情報を取得中...")
                 info = func(driver)
-                # 区切り線（9個）
                 final_message += f"\n\n" + "="*9 + f"\n# {name} #\n{info}"
         except Exception as e:
             print(f"予期せぬエラーが発生しました: {e}")
@@ -284,5 +279,5 @@ if __name__ == "__main__":
             driver.quit()
             print("全ての情報取得が完了しました。")
 
-        # print(final_message) # デバッグ用
+        # print(final_message)
         send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
