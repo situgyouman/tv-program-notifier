@@ -9,6 +9,7 @@ import json
 import os
 import requests
 
+
 # --- LINE通知関数 ---
 def send_line_multicast(message, channel_access_token, user_id_list):
     if not channel_access_token or not user_id_list:
@@ -292,3 +293,4 @@ if __name__ == "__main__":
         print("全ての情報取得が完了しました。")
 
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
+
