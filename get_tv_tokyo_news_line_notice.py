@@ -9,12 +9,10 @@ import json
 import os
 import requests
 
-
 # --- LINE通知関数 ---
 def send_line_multicast(message, channel_access_token, user_id_list):
     if not channel_access_token or not user_id_list:
         print("エラー: LINEトークンまたはユーザーIDが設定されていません。")
-        # テスト実行時はコンソールに出力して確認できるようにする
         print("\n--- 送信予定メッセージ ---\n")
         print(message)
         print("\n--------------------------\n")
@@ -41,37 +39,62 @@ def send_line_multicast(message, channel_access_token, user_id_list):
     except requests.exceptions.RequestException as e:
         print(f"LINE通知の送信に失敗しました: {e}")
 
-# --- WebDriverセットアップ関数 (タイムアウト対策版) ---
+# --- WebDriverセットアップ関数 (対ボット検知・タイムアウト対策版) ---
 def setup_driver():
     options = webdriver.ChromeOptions()
     options.add_argument('--headless')
     options.add_argument('--no-sandbox')
     options.add_argument('--disable-dev-shm-usage')
     options.add_argument('--log-level=3')
-    
-    # ★重要: ページの読み込み戦略を 'eager' に設定
-    # 画像やサブフレームの読み込み完了を待たずに処理を開始するため、タイムアウトしにくくなる
-    options.page_load_strategy = 'eager' 
+    options.page_load_strategy = 'eager'
+
+    # ★★★ 重要：人間に偽装する設定（ERR_CONNECTION_RESET対策） ★★★
+    # 一般的なブラウザのUser-Agentを設定
+    options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+    # 自動操作であることを隠すフラグ
+    options.add_argument('--disable-blink-features=AutomationControlled')
     
     driver = webdriver.Chrome(options=options)
-    driver.set_page_load_timeout(30) # 最大読み込み時間を30秒に制限
+    driver.set_page_load_timeout(30)
     return driver
 
+# --- ページ接続用のリトライ関数 ---
+def safe_get(driver, url, max_retries=3):
+    """ERR_CONNECTION_RESETなどのネットワークエラー時にリトライする"""
+    for i in range(max_retries):
+        try:
+            driver.get(url)
+            return True
+        except WebDriverException as e:
+            print(f"接続エラー({i+1}/{max_retries}): {url} - {e}")
+            time.sleep(5) # 5秒待って再試行
+    return False
+
 # --- 各番組情報取得関数 ---
-# 戻り値を (日付, 本文, URL) のタプルに変更
 
 def get_wbs_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/wbs/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
-        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "top-col-01")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
-        highlights_section = soup.find("div", class_="lay-left")
-        if not highlights_section: return ("日付不明", "「番組の見どころ」セクションが見つかりませんでした。", url)
+        main_container = soup.find("div", class_="top-col-01")
+        if not main_container:
+             return ("日付不明", "メインコンテンツが見つかりませんでした。", url)
+
+        highlights_section = main_container.find("div", class_="lay-left")
+        if not highlights_section: 
+            return ("日付不明", "「番組の見どころ」セクションが見つかりませんでした。", url)
         
         header = highlights_section.find("h2", class_="hdg")
-        date = header.find("span", class_="date").get_text(strip=True) if header else "日付不明"
+        date = "日付不明"
+        if header:
+            date_span = header.find("span", class_="date")
+            if date_span:
+                date = date_span.get_text(strip=True)
         
         text_area = highlights_section.find("div", class_="text-area")
         text = text_area.find("p").get_text(strip=True) if text_area else "本文不明"
@@ -82,8 +105,10 @@ def get_wbs_highlights(driver):
 
 def get_nms_highlights(driver):
     url = "https://www.tv-tokyo.co.jp/nms/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "lay-left")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -102,8 +127,10 @@ def get_nms_highlights(driver):
 
 def get_money_manabi_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/moneymanabi/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CSS_SELECTOR, "div.tbcms_program-detail.js-program-episode")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -119,12 +146,16 @@ def get_money_manabi_info(driver):
 
 def get_nikkei_next_info(driver):
     url = "https://www.bs-tvtokyo.co.jp/nikkeinext/"
+    
+    # ★リトライ付き接続を使用
+    if not safe_get(driver, url):
+        return ("取得エラー", "サイトへの接続がリセットされました(ERR_CONNECTION_RESET)。時間をおいて再実行してください。", url)
+
     try:
-        driver.get(url)
-        # タイムアウト対策済みドライバでアクセス
+        # 情報が入る箱が表示されるのを待つ
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode")))
-        # 少しだけ待ってDOMの安定を待つ
-        time.sleep(2) 
+        time.sleep(3) # データ読み込み完了まで少し余裕を持たせる
+        
         soup = BeautifulSoup(driver.page_source, "html.parser")
 
         main_block = soup.find("div", class_="js-program-episode")
@@ -139,7 +170,7 @@ def get_nikkei_next_info(driver):
         comment_tag = main_block.find("div", class_="js-program-episode-comment")
         summary = comment_tag.get_text(separator="\n", strip=True) if comment_tag else ""
 
-        # 詳細本文（番組概要の下を取得）
+        # 詳細本文
         detail = ""
         summary_heading = main_block.find("h3", string="番組概要")
         if summary_heading:
@@ -149,7 +180,6 @@ def get_nikkei_next_info(driver):
                 if p_tag:
                     detail = p_tag.get_text(separator="\n", strip=True)
 
-        # 結合
         content_list = []
         if summary: content_list.append(summary)
         if detail: content_list.append(detail)
@@ -164,8 +194,10 @@ def get_nikkei_next_info(driver):
 
 def get_cambria_info(driver):
     url = "https://www.tv-tokyo.co.jp/cambria/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "hdg-l1-01-wrap")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -181,9 +213,12 @@ def get_cambria_info(driver):
         if guest_section:
             guest_li = guest_section.find("li")
             if guest_li:
-                company = guest_li.find("span", class_="company").get_text(strip=True)
-                name = guest_li.find("span", class_="name").get_text(separator=" ", strip=True)
-                guest_info = f"\n{company}　　{name}"
+                company_span = guest_li.find("span", class_="company")
+                name_span = guest_li.find("span", class_="name")
+                if company_span and name_span:
+                    company = company_span.get_text(strip=True)
+                    name = name_span.get_text(separator=" ", strip=True)
+                    guest_info = f"\n{company}　　{name}"
 
         return (date, f"{title}{guest_info}", url)
     except Exception as e:
@@ -191,8 +226,10 @@ def get_cambria_info(driver):
 
 def get_gaia_info(driver):
     url = "https://www.tv-tokyo.co.jp/gaia/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "lyt-hdg-next-inner")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -208,8 +245,10 @@ def get_gaia_info(driver):
 
 def get_gulliver_info(driver):
     url = "https://www.tv-tokyo.co.jp/gulliver/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "tbcms_official-contents__heading")))
         soup = BeautifulSoup(driver.page_source, "html.parser")
         
@@ -231,8 +270,10 @@ def get_gulliver_info(driver):
 
 def get_breakthrough_info(driver):
     url = "https://www.tv-tokyo.co.jp/breakthrough/"
+    if not safe_get(driver, url):
+        return ("取得エラー", "接続に失敗しました。", url)
+
     try:
-        driver.get(url)
         WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.CLASS_NAME, "js-program-episode-schedule")))
         time.sleep(2) 
         soup = BeautifulSoup(driver.page_source, "html.parser")
@@ -253,14 +294,12 @@ if __name__ == "__main__":
     user_ids_string = os.environ.get('YOUR_USER_ID')
     user_id_list = user_ids_string.split(',') if user_ids_string else []
 
-    # 設定エラーチェック
     if not CHANNEL_ACCESS_TOKEN or not user_id_list:
         print("注意: 環境変数が設定されていないため、LINE送信はスキップされます。")
     
-    print("WebDriverを初期化中 (Eager Mode)...")
+    print("WebDriverを初期化中 (対検知モード)...")
     driver = setup_driver()
     
-    # リストの順番通りに処理
     programs_to_fetch = [
         ("WBS", get_wbs_highlights),
         ("NIKKEI NEWS NEXT", get_nikkei_next_info),
@@ -277,13 +316,7 @@ if __name__ == "__main__":
     try:
         for name, func in programs_to_fetch:
             print(f"{name}の情報を取得中...")
-            # 関数からは (日付, 本文, URL) のタプルが返ってくる
             date, text, url = func(driver)
-            
-            # ★★★ 改行とフォーマットの修正 ★★★
-            # # タイトル #　日付
-            # 本文
-            # URL
             final_message += f"\n\n" + "="*9 + f"\n# {name} #　{date}\n{text}\n{url}"
             
     except Exception as e:
@@ -293,4 +326,3 @@ if __name__ == "__main__":
         print("全ての情報取得が完了しました。")
 
     send_line_multicast(final_message, CHANNEL_ACCESS_TOKEN, user_id_list)
-
